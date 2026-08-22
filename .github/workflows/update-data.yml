@@ -1,0 +1,67 @@
+name: Update data
+
+on:
+  schedule:
+    # Every day at 3:18 am CDT (8:18 am UTC)
+    - cron: "18 8 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: update-data
+  cancel-in-progress: false
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+    env:
+      SOURCE_URL: "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=json"
+      DATA_BRANCH: data
+      USER_AGENT: "Mozilla/5.0 (compatible; +https://github.com/joshuatshaffer/satellite-data)"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch orbit data from CelesTrak
+        id: fetch
+        run: |
+          set +e
+          http_status=$(curl -sS -A "$USER_AGENT" -D headers.txt -o body.json -w "%{http_code}" "$SOURCE_URL")
+          curl_exit=$?
+          set -e
+          echo "http_status=$http_status" >> "$GITHUB_OUTPUT"
+          echo "curl_exit=$curl_exit" >> "$GITHUB_OUTPUT"
+
+      - name: Report failure details
+        if: steps.fetch.outputs.http_status != '200' || steps.fetch.outputs.curl_exit != '0'
+        run: |
+          echo "::error::Fetch failed (curl exit code: ${{ steps.fetch.outputs.curl_exit }}, HTTP status: ${{ steps.fetch.outputs.http_status }})"
+          echo "----- Response status -----"
+          echo "${{ steps.fetch.outputs.http_status }}"
+          echo "----- Response headers -----"
+          cat headers.txt || echo "(no headers captured)"
+          echo "----- Response body -----"
+          cat body.json || echo "(no body captured)"
+          exit 1
+
+      - name: Prepare data branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if git ls-remote --exit-code --heads origin "$DATA_BRANCH" > /dev/null 2>&1; then
+            git fetch origin "$DATA_BRANCH"
+            git checkout -B "$DATA_BRANCH" "origin/$DATA_BRANCH"
+          else
+            git checkout --orphan "$DATA_BRANCH"
+            git rm -rf . > /dev/null 2>&1 || true
+          fi
+
+      - name: Commit and push data
+        run: |
+          mv body.json omm.json
+          git add omm.json
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Update omm.json ($(date -u +%Y-%m-%dT%H:%M:%SZ))"
+            git push origin "$DATA_BRANCH"
+          fi
