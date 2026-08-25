@@ -1,4 +1,4 @@
-name: Update data
+name: Update OMM
 
 on:
   schedule:
@@ -7,11 +7,11 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: update-data
+  group: update-omm
   cancel-in-progress: false
 
 jobs:
-  update-data:
+  update-omm:
     runs-on: ubuntu-latest
     env:
       SOURCE_URL: "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=json"
